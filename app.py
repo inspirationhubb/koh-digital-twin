@@ -1,20 +1,29 @@
-
 import streamlit as st
 import math
+
+# =====================================================
+# PAGE CONFIG
+# =====================================================
 
 st.set_page_config(
     page_title="KOH Digital Twin",
     layout="wide"
 )
 
+# =====================================================
+# TITLE
+# =====================================================
+
 st.title("Physics-Based Incremental KOH Digital Twin")
 
-st.markdown(
-    """
-    Real-time numerical neutralization calculator for predicting
-    safe incremental caustic addition.
-    """
-)
+st.markdown("""
+Real-time numerical neutralization calculator for predicting
+safe incremental caustic addition.
+""")
+
+# =====================================================
+# SIDEBAR INPUTS
+# =====================================================
 
 st.sidebar.header("Operator Inputs")
 
@@ -58,6 +67,10 @@ mixing_time = st.sidebar.number_input(
     value=4.0
 )
 
+# =====================================================
+# MODEL PARAMETERS
+# =====================================================
+
 st.sidebar.markdown("---")
 st.sidebar.subheader("Model Parameters")
 
@@ -85,14 +98,20 @@ temp_coeff = st.sidebar.number_input(
 # PHYSICS-BASED DIGITAL TWIN SOLVER
 # =====================================================
 
+# Stoichiometric KOH requirement
+
 koh_theoretical = (
     acid_value * batch_mass * 56.1
 ) / (1000 * koh_strength)
+
+# Remaining KOH gap
 
 koh_gap = max(
     koh_theoretical - cumulative_koh,
     0
 )
+
+# Midpoint pH region
 
 ph_mid = 8
 
@@ -120,14 +139,23 @@ gain_ph = (
     * mixing_correction
 )
 
+# Incremental KOH solver
+
 incremental_koh = (
     gamma
-    * ((target_ph - current_ph)
-    / max(gain_ph, 0.0001))
-    * (koh_gap / max(koh_theoretical, 1))
+    * (
+        (target_ph - current_ph)
+        / max(gain_ph, 0.0001)
+    )
+    * (
+        koh_gap
+        / max(koh_theoretical, 1)
+    )
 )
 
-# Endpoint damping logic
+# =====================================================
+# ENDPOINT DAMPING
+# =====================================================
 
 damping_factor = 1
 
@@ -142,24 +170,39 @@ elif current_ph >= 6:
 
 incremental_koh *= damping_factor
 
-incremental_koh = max(incremental_koh, 0)
-
-predicted_next_ph = (
-    current_ph + gain_ph * incremental_koh
+incremental_koh = max(
+    incremental_koh,
+    0
 )
 
+# =====================================================
+# PREDICTED NEXT PH
+# =====================================================
+
+predicted_next_ph = (
+    current_ph
+    + gain_ph * incremental_koh
+)
+
+# =====================================================
+# REMAINING NEUTRALIZATION
+# =====================================================
+
 neutralization_remaining = (
-    koh_gap / max(koh_theoretical, 1)
+    koh_gap
+    / max(koh_theoretical, 1)
 ) * 100
 
-# Overshoot risk logic
+# =====================================================
+# OVERSHOOT RISK
+# =====================================================
 
-overhoot_risk = "LOW"
+overshoot_risk = "LOW"
 
 if predicted_next_ph > target_ph + 1:
-    overhoot_risk = "HIGH"
+    overshoot_risk = "HIGH"
 elif predicted_next_ph > target_ph:
-    overhoot_risk = "MEDIUM"
+    overshoot_risk = "MEDIUM"
 
 # =====================================================
 # OUTPUTS
@@ -182,7 +225,7 @@ with col2:
 with col3:
     st.metric(
         "Overshoot Risk",
-        overhoot_risk
+        overshoot_risk
     )
 
 st.markdown("---")
@@ -207,25 +250,30 @@ with col6:
         f"{gain_ph:.4f}"
     )
 
+# =====================================================
+# ENGINEERING LOGIC
+# =====================================================
+
 st.markdown("---")
 
 st.subheader("Embedded Physics Logic")
 
-st.markdown(
-    """
+st.markdown("""
 - Stoichiometric neutralization engine
 - Temperature-corrected pH sensitivity
 - Nonlinear endpoint damping
 - Mixing stabilization correction
 - Overshoot prevention logic
 - Real-time incremental KOH recommendation
-    """
-)
+""")
+
+# =====================================================
+# ENGINEERING NOTES
+# =====================================================
 
 st.subheader("Engineering Notes")
 
-st.info(
-    """
+st.info("""
 This is a semi-first-principles digital twin.
 
 The solver combines:
@@ -235,4 +283,4 @@ The solver combines:
 - and endpoint damping.
 
 This is NOT a black-box ML model.
-    """
+""")
