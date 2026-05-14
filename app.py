@@ -1,8 +1,4 @@
-# Streamlit Deployment Package — Physics-Based Incremental KOH Digital Twin
 
-## File 1 — `app.py`
-
-```python
 import streamlit as st
 import math
 
