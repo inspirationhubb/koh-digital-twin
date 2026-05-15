@@ -1,212 +1,247 @@
 import streamlit as st
 import math
 
-# =====================================================
+# =========================================================
 # PAGE CONFIG
-# =====================================================
+# =========================================================
 
 st.set_page_config(
     page_title="KOH Digital Twin",
     layout="wide"
 )
 
-# =====================================================
+# =========================================================
 # TITLE
-# =====================================================
+# =========================================================
 
 st.title("Physics-Based Incremental KOH Digital Twin")
 
 st.markdown("""
-Real-time numerical neutralization calculator for predicting
-safe incremental caustic addition.
+Semi-first-principles neutralization twin for predicting
+safe incremental KOH addition during herbal batch processing.
 """)
 
-# =====================================================
+# =========================================================
 # SIDEBAR INPUTS
-# =====================================================
+# =========================================================
 
 st.sidebar.header("Operator Inputs")
 
+batch_size = st.sidebar.number_input(
+    "Batch Size (KL)",
+    min_value=1.0,
+    value=12.0
+)
+
 acid_value = st.sidebar.number_input(
-    "Soya DFA Acid Value",
+    "Soya DFA Acid Value (mg KOH/g)",
+    min_value=0.0,
     value=25.0
-)
-
-batch_mass = st.sidebar.number_input(
-    "Batch Mass (kg)",
-    value=10000.0
-)
-
-koh_strength = st.sidebar.number_input(
-    "Strength of Caustic (%)",
-    value=45.0
 )
 
 current_ph = st.sidebar.number_input(
     "Intermediate pH",
+    min_value=0.0,
+    max_value=14.0,
     value=6.5
 )
 
 target_ph = st.sidebar.number_input(
     "Target Final pH",
+    min_value=8.0,
+    max_value=11.0,
     value=9.0
 )
 
+koh_strength = st.sidebar.number_input(
+    "Strength of Caustic (%)",
+    min_value=1.0,
+    max_value=100.0,
+    value=45.0
+)
+
 temperature = st.sidebar.number_input(
-    "Mixer Temperature (°C)",
+    "Mixer Temperature at FCA Check (°C)",
     value=50.0
 )
 
-cumulative_koh = st.sidebar.number_input(
+current_total_koh = st.sidebar.number_input(
     "Current Total KOH Added (kg)",
-    value=450.0
+    min_value=0.0,
+    value=350.0
 )
 
 mixing_time = st.sidebar.number_input(
     "Mixing Time Before pH Check (min)",
+    min_value=1.0,
     value=4.0
 )
 
-# =====================================================
-# MODEL PARAMETERS
-# =====================================================
+# =========================================================
+# INTERNAL PROCESS CONSTANTS
+# =========================================================
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("Model Parameters")
+# DFA loading ratio:
+# 60 kg DFA per KL batch
 
-alpha = st.sidebar.number_input(
-    "Alpha Gain Constant",
-    value=0.08
-)
+DFA_RATIO = 60
 
-beta = st.sidebar.number_input(
-    "Beta Damping Constant",
-    value=0.35
-)
+# Physics tuning parameters
 
-gamma = st.sidebar.number_input(
-    "Gamma Safety Factor",
-    value=0.45
-)
+ALPHA = 0.025
+BETA = 0.45
+TEMP_COEFF = 0.015
+SAFETY_FACTOR = 0.35
 
-temp_coeff = st.sidebar.number_input(
-    "Temperature Coefficient",
-    value=0.02
-)
+# =========================================================
+# STEP 1 — DFA INVENTORY
+# =========================================================
 
-# =====================================================
-# PHYSICS-BASED DIGITAL TWIN SOLVER
-# =====================================================
+dfa_quantity = batch_size * DFA_RATIO
 
-# Stoichiometric KOH requirement
+# =========================================================
+# STEP 2 — THEORETICAL KOH REQUIREMENT
+# =========================================================
 
 koh_theoretical = (
-    acid_value * batch_mass * 56.1
-) / (1000 * koh_strength)
+    acid_value
+    * dfa_quantity
+    * 56.1
+) / (
+    1000 * koh_strength
+)
 
-# Remaining KOH gap
+# =========================================================
+# STEP 3 — REMAINING NEUTRALIZATION GAP
+# =========================================================
 
 koh_gap = max(
-    koh_theoretical - cumulative_koh,
+    koh_theoretical - current_total_koh,
     0
 )
 
-# Midpoint pH region
+# =========================================================
+# STEP 4 — TEMPERATURE CORRECTION
+# =========================================================
+
+temp_correction = (
+    1
+    + TEMP_COEFF * (temperature - 50)
+)
+
+# =========================================================
+# STEP 5 — MIXING CORRECTION
+# =========================================================
+
+mixing_correction = min(
+    max(mixing_time / 4, 0.85),
+    1.15
+)
+
+# =========================================================
+# STEP 6 — NONLINEAR pH GAIN MODEL
+# =========================================================
 
 ph_mid = 8
 
-# Temperature correction
-
-temp_correction = (
-    1 + temp_coeff * (temperature - 50)
-)
-
-# Mixing stabilization correction
-
-mixing_correction = min(
-    max(mixing_time / 4, 0.8),
-    1.2
-)
-
-# Nonlinear pH gain model
-
 gain_ph = (
-    alpha
+    ALPHA
     * math.exp(
-        -beta * ((current_ph - ph_mid) ** 2)
+        -BETA * ((current_ph - ph_mid) ** 2)
     )
     * temp_correction
     * mixing_correction
 )
 
-# Incremental KOH solver
+# =========================================================
+# STEP 7 — INCREMENTAL KOH SOLVER
+# =========================================================
 
-incremental_koh = (
-    gamma
-    * (
-        (target_ph - current_ph)
-        / max(gain_ph, 0.0001)
-    )
-    * (
-        koh_gap
-        / max(koh_theoretical, 1)
-    )
+ph_gap = max(
+    target_ph - current_ph,
+    0
 )
 
-# =====================================================
-# ENDPOINT DAMPING
-# =====================================================
+incremental_koh = (
+    SAFETY_FACTOR
+    * ph_gap
+    * koh_gap
+) / max(gain_ph * 100, 0.01)
 
-damping_factor = 1
+# =========================================================
+# STEP 8 — ENDPOINT DAMPING
+# =========================================================
 
 if current_ph >= 9:
-    damping_factor = 0.1
+    damping = 0.10
 elif current_ph >= 8:
-    damping_factor = 0.2
+    damping = 0.20
 elif current_ph >= 7:
-    damping_factor = 0.4
+    damping = 0.45
 elif current_ph >= 6:
-    damping_factor = 0.7
+    damping = 0.70
+else:
+    damping = 1.00
 
-incremental_koh *= damping_factor
+incremental_koh *= damping
+
+# =========================================================
+# STEP 9 — MAX SAFE LIMITER
+# =========================================================
+
+max_increment = koh_gap * 0.35
+
+incremental_koh = min(
+    incremental_koh,
+    max_increment
+)
 
 incremental_koh = max(
     incremental_koh,
     0
 )
 
-# =====================================================
-# PREDICTED NEXT PH
-# =====================================================
+# =========================================================
+# STEP 10 — PREDICTED NEXT pH
+# =========================================================
 
 predicted_next_ph = (
     current_ph
     + gain_ph * incremental_koh
 )
 
-# =====================================================
-# REMAINING NEUTRALIZATION
-# =====================================================
+predicted_next_ph = min(
+    predicted_next_ph,
+    11
+)
+
+# =========================================================
+# STEP 11 — OVERSHOOT RISK
+# =========================================================
+
+if predicted_next_ph > target_ph + 0.5:
+    overshoot_risk = "HIGH"
+elif predicted_next_ph > target_ph:
+    overshoot_risk = "MEDIUM"
+else:
+    overshoot_risk = "LOW"
+
+# =========================================================
+# STEP 12 — REMAINING NEUTRALIZATION
+# =========================================================
 
 neutralization_remaining = (
     koh_gap
     / max(koh_theoretical, 1)
 ) * 100
 
-# =====================================================
-# OVERSHOOT RISK
-# =====================================================
-
-overshoot_risk = "LOW"
-
-if predicted_next_ph > target_ph + 1:
-    overshoot_risk = "HIGH"
-elif predicted_next_ph > target_ph:
-    overshoot_risk = "MEDIUM"
-
-# =====================================================
+# =========================================================
 # OUTPUTS
-# =====================================================
+# =========================================================
+
+st.markdown("---")
+
+st.subheader("Digital Twin Recommendations")
 
 col1, col2, col3 = st.columns(3)
 
@@ -234,25 +269,41 @@ col4, col5, col6 = st.columns(3)
 
 with col4:
     st.metric(
-        "Theoretical KOH",
-        f"{koh_theoretical:.2f} kg"
+        "DFA Quantity",
+        f"{dfa_quantity:.2f} kg"
     )
 
 with col5:
     st.metric(
-        "Remaining Neutralization",
-        f"{neutralization_remaining:.2f}%"
+        "Theoretical KOH Requirement",
+        f"{koh_theoretical:.2f} kg"
     )
 
 with col6:
     st.metric(
-        "pH Gain",
+        "Remaining Neutralization",
+        f"{neutralization_remaining:.1f}%"
+    )
+
+st.markdown("---")
+
+col7, col8 = st.columns(2)
+
+with col7:
+    st.metric(
+        "pH Gain Sensitivity",
         f"{gain_ph:.4f}"
     )
 
-# =====================================================
+with col8:
+    st.metric(
+        "Remaining KOH Gap",
+        f"{koh_gap:.2f} kg"
+    )
+
+# =========================================================
 # ENGINEERING LOGIC
-# =====================================================
+# =========================================================
 
 st.markdown("---")
 
@@ -260,27 +311,34 @@ st.subheader("Embedded Physics Logic")
 
 st.markdown("""
 - Stoichiometric neutralization engine
+- DFA inventory-based acid loading
 - Temperature-corrected pH sensitivity
-- Nonlinear endpoint damping
 - Mixing stabilization correction
-- Overshoot prevention logic
-- Real-time incremental KOH recommendation
+- Nonlinear endpoint damping
+- Safe incremental dosing logic
+- Overshoot prevention constraints
 """)
 
-# =====================================================
+# =========================================================
 # ENGINEERING NOTES
-# =====================================================
+# =========================================================
+
+st.markdown("---")
 
 st.subheader("Engineering Notes")
 
 st.info("""
-This is a semi-first-principles digital twin.
+This digital twin is based on:
 
-The solver combines:
-- stoichiometric neutralization,
-- nonlinear pH behavior,
-- temperature correction,
-- and endpoint damping.
+• Acid-base neutralization stoichiometry  
+• Semi-first-principles reactor behavior  
+• Nonlinear pH response modeling  
+• Temperature sensitivity correction  
+• Stepwise dosing stabilization logic  
 
-This is NOT a black-box ML model.
+This is NOT a machine-learning black-box model.
+
+The model should be calibrated further using
+actual incremental pH-response trajectories
+from plant batches for APC-grade accuracy.
 """)
